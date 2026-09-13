@@ -18,6 +18,8 @@ export interface Team {
   goalsAgainstPerGame: number;
   /** 直近5試合の結果（新しい順）。W=勝ち D=分け L=負け */
   recentForm: ("W" | "D" | "L")[];
+  /** 外部データソース上の表記ゆれ（英語名など）。実データとの名寄せに使う。 */
+  sourceNames?: string[];
 }
 
 /** ニュースを特徴量に変換したもの（チーム単位の影響度スコア） */

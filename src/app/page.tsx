@@ -1,13 +1,12 @@
 import Link from "next/link";
 import { MatchCard } from "@/components/MatchCard";
-import { CURRENT_ROUND, NEWS, TEAM_BY_ID } from "@/data/seed";
+import { CURRENT_ROUND } from "@/data/seed";
 import { MODELS, predictRound } from "@/lib/service";
+import { getDeps } from "@/lib/teams";
 import type { ModelId } from "@/lib/types";
 import { pct } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
-
-const deps = { teamById: (id: string) => TEAM_BY_ID[id], news: NEWS };
 
 function parseModel(v: string | undefined): ModelId {
   return v === "statistical" ? "statistical" : "news-weighted";
@@ -20,6 +19,7 @@ export default async function Home({
 }) {
   const { model: modelParam } = await searchParams;
   const model = parseModel(modelParam);
+  const deps = await getDeps();
   const preds = predictRound(CURRENT_ROUND, model, deps);
   const deadline = new Date(CURRENT_ROUND.deadlineAt);
 
@@ -67,6 +67,9 @@ export default async function Home({
       <p className="small muted">
         {MODELS.find((m) => m.id === model)?.description} ／ 平均自信度 {pct(avgConfidence)}・
         波乱度が高い試合 {upsetMatches}件
+        <span className="pill" style={{ marginLeft: 8 }}>
+          データ: {deps.info.source === "database" ? "実データ(DB)" : "サンプル(seed)"}
+        </span>
       </p>
 
       <div className="grid" style={{ marginTop: 16 }}>
@@ -74,8 +77,8 @@ export default async function Home({
           <MatchCard
             key={p.fixtureNo}
             prediction={p}
-            home={TEAM_BY_ID[p.homeTeamId]}
-            away={TEAM_BY_ID[p.awayTeamId]}
+            home={deps.teamMap[p.homeTeamId]}
+            away={deps.teamMap[p.awayTeamId]}
           />
         ))}
       </div>

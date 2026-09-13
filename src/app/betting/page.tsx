@@ -1,13 +1,13 @@
 import Link from "next/link";
-import { CURRENT_ROUND, NEWS, TEAM_BY_ID } from "@/data/seed";
+import { CURRENT_ROUND } from "@/data/seed";
 import { buildTicket } from "@/lib/betting";
 import { BET_MODES, MODELS, predictRound } from "@/lib/service";
+import { getDeps } from "@/lib/teams";
 import type { BetMode, ModelId, Outcome } from "@/lib/types";
 import { OUTCOME_MARK, pct, yen } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
-const deps = { teamById: (id: string) => TEAM_BY_ID[id], news: NEWS };
 const ORDER: Outcome[] = ["HOME", "DRAW", "AWAY"];
 
 function parseModel(v: string | undefined): ModelId {
@@ -28,6 +28,7 @@ export default async function Betting({
   const mode = parseMode(sp.mode);
   const budget = Math.max(0, Number(sp.budget) || 5000);
 
+  const deps = await getDeps();
   const preds = predictRound(CURRENT_ROUND, model, deps);
   const ticket = buildTicket(preds, mode, budget);
   const predByNo = new Map(preds.map((p) => [p.fixtureNo, p]));
@@ -113,8 +114,8 @@ export default async function Betting({
       <div className="sel-grid">
         {ticket.selections.map((s) => {
           const pr = predByNo.get(s.fixtureNo)!;
-          const home = TEAM_BY_ID[pr.homeTeamId];
-          const away = TEAM_BY_ID[pr.awayTeamId];
+          const home = deps.teamMap[pr.homeTeamId];
+          const away = deps.teamMap[pr.awayTeamId];
           return (
             <div className="sel" key={s.fixtureNo}>
               <div className="sel-no">

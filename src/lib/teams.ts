@@ -1,0 +1,65 @@
+// ------------------------------------------------------------------
+// チームデータのアクセス層
+//
+//   優先順位:
+//     1. Turso の teams テーブル（ingest cron が実データで更新）
+//     2. seed の既定値（DB未設定・空・エラー時のフォールバック）
+//
+//   これにより、リクエスト経路は外部APIに依存せず、
+//   実データ接続の有無にかかわらずアプリが動作する。
+// ------------------------------------------------------------------
+
+import { loadTeamsFromDb } from "./db";
+import { NEWS, TEAMS } from "@/data/seed";
+import type { NewsFactor, Team } from "./types";
+
+export interface DataSourceInfo {
+  source: "database" | "seed";
+}
+
+/**
+ * 予想に使うチーム一覧を取得する。
+ * DBに実データがあれば seed のロスターにマージして返す（該当チームは上書き、
+ * DBに無いチームは seed の値を維持）。これにより、DBが一部チームしか
+ * 持たない場合でも全ロスターが揃い、対象試合の描画が壊れない。
+ */
+export async function getTeams(): Promise<{ teams: Team[]; info: DataSourceInfo }> {
+  try {
+    const fromDb = await loadTeamsFromDb();
+    if (fromDb && fromDb.length > 0) {
+      const byId = new Map(fromDb.map((t) => [t.id, t]));
+      const teams = TEAMS.map((base) => {
+        const d = byId.get(base.id);
+        if (!d) return base;
+        return {
+          ...base,
+          elo: d.elo,
+          goalsForPerGame: d.goalsForPerGame,
+          goalsAgainstPerGame: d.goalsAgainstPerGame,
+          recentForm: d.recentForm.length ? d.recentForm : base.recentForm,
+        };
+      });
+      return { teams, info: { source: "database" } };
+    }
+  } catch (err) {
+    console.error("[teams] DB読み込み失敗、seedにフォールバック:", err);
+  }
+  return { teams: TEAMS, info: { source: "seed" } };
+}
+
+/** 予想サービスに渡す依存（teamById と news） */
+export async function getDeps(): Promise<{
+  teamById: (id: string) => Team | undefined;
+  teamMap: Record<string, Team>;
+  news: NewsFactor[];
+  info: DataSourceInfo;
+}> {
+  const { teams, info } = await getTeams();
+  const teamMap = Object.fromEntries(teams.map((t) => [t.id, t]));
+  return {
+    teamById: (id: string) => teamMap[id],
+    teamMap,
+    news: NEWS,
+    info,
+  };
+}

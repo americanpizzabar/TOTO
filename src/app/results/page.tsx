@@ -1,13 +1,13 @@
-import { NEWS, PAST_ROUNDS, TEAM_BY_ID } from "@/data/seed";
+import { PAST_ROUNDS } from "@/data/seed";
 import { MODELS, summarizeModel } from "@/lib/service";
+import { getDeps } from "@/lib/teams";
 import type { ModelId } from "@/lib/types";
 import { OUTCOME_MARK, pct, yen } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
-const deps = { teamById: (id: string) => TEAM_BY_ID[id], news: NEWS };
-
-export default function Results() {
+export default async function Results() {
+  const deps = await getDeps();
   const summaries = MODELS.map((m) => ({
     meta: m,
     summary: summarizeModel(PAST_ROUNDS, m.id as ModelId, deps),
@@ -96,8 +96,8 @@ export default function Results() {
                       <tr key={d.fixtureNo}>
                         <td>{d.fixtureNo}</td>
                         <td>
-                          {TEAM_BY_ID[fx.homeTeamId].shortName} -{" "}
-                          {TEAM_BY_ID[fx.awayTeamId].shortName}
+                          {deps.teamMap[fx.homeTeamId]?.shortName} -{" "}
+                          {deps.teamMap[fx.awayTeamId]?.shortName}
                         </td>
                         <td>{OUTCOME_MARK[d.pick]}</td>
                         <td>{OUTCOME_MARK[d.actual]}</td>

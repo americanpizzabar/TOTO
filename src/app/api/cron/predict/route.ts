@@ -5,7 +5,8 @@ import { NextResponse } from "next/server";
 import { authorizeCron } from "@/lib/cron";
 import { savePredictions } from "@/lib/db";
 import { predictRound } from "@/lib/service";
-import { CURRENT_ROUND, NEWS, TEAM_BY_ID } from "@/data/seed";
+import { getDeps } from "@/lib/teams";
+import { CURRENT_ROUND } from "@/data/seed";
 import type { ModelId } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -14,7 +15,7 @@ export async function GET(request: Request) {
   const denied = authorizeCron(request);
   if (denied) return denied;
 
-  const deps = { teamById: (id: string) => TEAM_BY_ID[id], news: NEWS };
+  const deps = await getDeps();
   const models: ModelId[] = ["statistical", "news-weighted"];
   const summary: Record<string, number> = {};
 

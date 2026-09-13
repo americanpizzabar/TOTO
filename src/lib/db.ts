@@ -8,7 +8,7 @@
 // ------------------------------------------------------------------
 
 import { createClient, type Client } from "@libsql/client";
-import type { MatchPrediction, Outcome } from "./types";
+import type { MatchPrediction, Outcome, Team } from "./types";
 
 let _client: Client | null | undefined;
 
@@ -59,6 +59,17 @@ export async function ensureSchema(client: Client): Promise<void> {
         away_score INTEGER,
         imported_at TEXT NOT NULL,
         PRIMARY KEY (round_id, fixture_no)
+      )`,
+      `CREATE TABLE IF NOT EXISTS teams (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        short_name TEXT NOT NULL,
+        elo REAL NOT NULL,
+        gf_per_game REAL NOT NULL,
+        ga_per_game REAL NOT NULL,
+        recent_form TEXT NOT NULL,
+        source TEXT NOT NULL,
+        updated_at TEXT NOT NULL
       )`,
       `CREATE TABLE IF NOT EXISTS news_factors (
         id TEXT PRIMARY KEY,
@@ -116,6 +127,55 @@ export async function savePredictions(
     })),
     "write",
   );
+}
+
+/** チームのレーティングを保存（upsert） */
+export async function saveTeams(teams: Team[], source: string): Promise<void> {
+  const client = getClient();
+  if (!client) return;
+  await ensureSchema(client);
+  const now = new Date().toISOString();
+  await client.batch(
+    teams.map((t) => ({
+      sql: `INSERT INTO teams
+        (id, name, short_name, elo, gf_per_game, ga_per_game, recent_form, source, updated_at)
+        VALUES (?,?,?,?,?,?,?,?,?)
+        ON CONFLICT(id) DO UPDATE SET
+          name=excluded.name, short_name=excluded.short_name, elo=excluded.elo,
+          gf_per_game=excluded.gf_per_game, ga_per_game=excluded.ga_per_game,
+          recent_form=excluded.recent_form, source=excluded.source, updated_at=excluded.updated_at`,
+      args: [
+        t.id,
+        t.name,
+        t.shortName,
+        t.elo,
+        t.goalsForPerGame,
+        t.goalsAgainstPerGame,
+        JSON.stringify(t.recentForm),
+        source,
+        now,
+      ],
+    })),
+    "write",
+  );
+}
+
+/** DBからチームのレーティングを読む。未設定/空なら null。 */
+export async function loadTeamsFromDb(): Promise<Team[] | null> {
+  const client = getClient();
+  if (!client) return null;
+  await ensureSchema(client);
+  const rs = await client.execute("SELECT * FROM teams");
+  if (rs.rows.length === 0) return null;
+  return rs.rows.map((r) => ({
+    id: String(r.id),
+    name: String(r.name),
+    shortName: String(r.short_name),
+    elo: Number(r.elo),
+    goalsForPerGame: Number(r.gf_per_game),
+    goalsAgainstPerGame: Number(r.ga_per_game),
+    recentForm: JSON.parse(String(r.recent_form)),
+  }));
 }
 
 /** 結果を保存（upsert） */

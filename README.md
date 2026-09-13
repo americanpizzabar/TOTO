@@ -62,15 +62,51 @@ npm run typecheck
 
 環境変数は `.env.example` を参照（すべて任意。未設定でもseedデータで動作）。
 
-## データソース（実データ接続時）
+## 実データ接続
 
-`src/data/seed.ts` を差し替えるだけで上位のエンジン/UIは不変です。
+チームのレーティング（Elo・平均得失点・直近フォーム）を実データから構築できます。
+
+```
+確定試合の結果 → 正規化(FinishedMatch) → buildTeamRatings() → teamsテーブル(Turso)
+                                                                    ↓ 読み出し
+                              ページ/予想 ← getTeams()（DB優先・seedフォールバック）
+```
+
+- **プロバイダ**: `src/lib/provider/thesportsdb.ts` … TheSportsDB（無料）から J1 の確定結果を取得。
+  リーグIDは名前から動的解決、チーム名は seed の `sourceNames` で内部slugに名寄せ。
+- **変換（データソース非依存の純関数）**: `src/lib/ratings.ts` … 結果列から Elo を逐次更新し、
+  平均得失点・直近5試合フォームを算出。
+- **取り込み**: `/api/cron/teams`（`DATA_SOURCE=thesportsdb` のときのみ実行）が
+  取得→ `teams` テーブルへ保存。**リクエスト経路は外部APIに依存しません**（DBから読む）。
+- **フォールバック**: DBに該当が無いチームは seed の値を維持。取得失敗時は seed 全体で動作。
+- 画面には「データ: 実データ(DB) / サンプル(seed)」の出所バッジを表示。
+
+有効化:
+
+```bash
+# .env
+DATA_SOURCE=thesportsdb
+THESPORTSDB_KEY=<自分のキー>   # 既定 "3" は無料テストキー
+TURSO_DATABASE_URL=...          # 保存先（未設定なら取得結果は保存されずseed動作）
+```
+
+> **注**: 別プロバイダ（API-Football等）へ差し替える場合も、`FinishedMatch[]` を返すよう
+> プロバイダを実装すれば `ratings.ts` 以降は不変です。
+
+### toto対象試合（販売回の13試合）
+
+「どの13試合か」は toto公式に依存し公開APIが無いため、現状は `src/data/seed.ts` の
+`CURRENT_ROUND` で定義します（チームは実データと同じ内部slugで参照）。将来 toto公式の
+取り込み（スクレイピング等）に差し替え予定。
+
+### 想定データソース
 
 - Jリーグデータサイト（日程・結果・順位）
 - toto公式（対象試合・販売回・結果）
 - 各クラブ公式 / スポーツメディア（ニュース）
+- TheSportsDB / API-Football など（レーティング用の結果データ）
 
-> 現状の数値はデモ用の近似値であり、公式記録ではありません。
+> 現状の seed 数値はデモ用の近似値であり、公式記録ではありません。
 
 ## 免責
 
