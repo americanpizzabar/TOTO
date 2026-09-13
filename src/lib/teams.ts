@@ -10,8 +10,9 @@
 // ------------------------------------------------------------------
 
 import { loadNewsFactors, loadTeamsFromDb } from "./db";
+import { getCurrentRound } from "./rounds";
 import { NEWS, TEAMS } from "@/data/seed";
-import type { NewsFactor, Team } from "./types";
+import type { NewsFactor, Round, Team } from "./types";
 
 /** ニュース特徴量を取得（DB優先、seedフォールバック） */
 export async function getNews(): Promise<{ news: NewsFactor[]; source: "database" | "seed" }> {
@@ -39,7 +40,8 @@ export async function getTeams(): Promise<{ teams: Team[]; info: DataSourceInfo 
     const fromDb = await loadTeamsFromDb();
     if (fromDb && fromDb.length > 0) {
       const byId = new Map(fromDb.map((t) => [t.id, t]));
-      const teams = TEAMS.map((base) => {
+      const seedIds = new Set(TEAMS.map((t) => t.id));
+      const merged = TEAMS.map((base) => {
         const d = byId.get(base.id);
         if (!d) return base;
         return {
@@ -50,7 +52,9 @@ export async function getTeams(): Promise<{ teams: Team[]; info: DataSourceInfo 
           recentForm: d.recentForm.length ? d.recentForm : base.recentForm,
         };
       });
-      return { teams, info: { source: "database" } };
+      // seed に無いDB専用チームも取り込む
+      const dbOnly = fromDb.filter((t) => !seedIds.has(t.id));
+      return { teams: [...merged, ...dbOnly], info: { source: "database" } };
     }
   } catch (err) {
     console.error("[teams] DB読み込み失敗、seedにフォールバック:", err);
@@ -58,19 +62,33 @@ export async function getTeams(): Promise<{ teams: Team[]; info: DataSourceInfo 
   return { teams: TEAMS, info: { source: "seed" } };
 }
 
-/** 予想サービスに渡す依存（teamById と news） */
+/**
+ * 予想サービスに渡す依存（teamById / news / 現在の開催回）。
+ * 開催回の未登録チーム(extraTeams)もチームマップに含める。
+ */
 export async function getDeps(): Promise<{
   teamById: (id: string) => Team | undefined;
   teamMap: Record<string, Team>;
   news: NewsFactor[];
   info: DataSourceInfo;
+  round: Round;
+  roundSource: "database" | "seed";
 }> {
-  const [{ teams, info }, { news }] = await Promise.all([getTeams(), getNews()]);
-  const teamMap = Object.fromEntries(teams.map((t) => [t.id, t]));
+  const [{ teams, info }, { news }, roundInfo] = await Promise.all([
+    getTeams(),
+    getNews(),
+    getCurrentRound(),
+  ]);
+  // 実チームを優先しつつ、開催回の仮チームを補完
+  const teamMap = Object.fromEntries(
+    [...roundInfo.extraTeams, ...teams].map((t) => [t.id, t]),
+  );
   return {
     teamById: (id: string) => teamMap[id],
     teamMap,
     news,
     info,
+    round: roundInfo.round,
+    roundSource: roundInfo.source,
   };
 }

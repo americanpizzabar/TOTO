@@ -8,7 +8,7 @@
 // ------------------------------------------------------------------
 
 import { createClient, type Client } from "@libsql/client";
-import type { MatchPrediction, NewsFactor, Outcome, Team } from "./types";
+import type { MatchPrediction, NewsFactor, Outcome, Round, Team } from "./types";
 
 let _client: Client | null | undefined;
 
@@ -59,6 +59,16 @@ export async function ensureSchema(client: Client): Promise<void> {
         away_score INTEGER,
         imported_at TEXT NOT NULL,
         PRIMARY KEY (round_id, fixture_no)
+      )`,
+      `CREATE TABLE IF NOT EXISTS rounds (
+        id TEXT PRIMARY KEY,
+        no INTEGER NOT NULL,
+        name TEXT NOT NULL,
+        deadline_at TEXT NOT NULL,
+        fixtures_json TEXT NOT NULL,
+        extra_teams_json TEXT NOT NULL,
+        source TEXT NOT NULL,
+        updated_at TEXT NOT NULL
       )`,
       `CREATE TABLE IF NOT EXISTS teams (
         id TEXT PRIMARY KEY,
@@ -127,6 +137,56 @@ export async function savePredictions(
     })),
     "write",
   );
+}
+
+/** 開催回を保存（upsert）。extraTeams（未登録チーム）も同梱で保持。 */
+export async function saveRound(
+  round: Round,
+  extraTeams: Team[],
+  source: string,
+): Promise<void> {
+  const client = getClient();
+  if (!client) return;
+  await ensureSchema(client);
+  await client.execute({
+    sql: `INSERT INTO rounds
+      (id, no, name, deadline_at, fixtures_json, extra_teams_json, source, updated_at)
+      VALUES (?,?,?,?,?,?,?,?)
+      ON CONFLICT(id) DO UPDATE SET
+        no=excluded.no, name=excluded.name, deadline_at=excluded.deadline_at,
+        fixtures_json=excluded.fixtures_json, extra_teams_json=excluded.extra_teams_json,
+        source=excluded.source, updated_at=excluded.updated_at`,
+    args: [
+      round.id,
+      round.no,
+      round.name,
+      round.deadlineAt,
+      JSON.stringify(round.fixtures),
+      JSON.stringify(extraTeams),
+      source,
+      new Date().toISOString(),
+    ],
+  });
+}
+
+/** 最新（no最大）の開催回を読む。未設定/空なら null。 */
+export async function loadCurrentRound(): Promise<{ round: Round; extraTeams: Team[] } | null> {
+  const client = getClient();
+  if (!client) return null;
+  await ensureSchema(client);
+  const rs = await client.execute("SELECT * FROM rounds ORDER BY no DESC LIMIT 1");
+  if (rs.rows.length === 0) return null;
+  const r = rs.rows[0];
+  return {
+    round: {
+      id: String(r.id),
+      no: Number(r.no),
+      name: String(r.name),
+      deadlineAt: String(r.deadline_at),
+      fixtures: JSON.parse(String(r.fixtures_json)),
+    },
+    extraTeams: JSON.parse(String(r.extra_teams_json)),
+  };
 }
 
 /** チームのレーティングを保存（upsert） */

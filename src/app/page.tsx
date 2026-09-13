@@ -1,6 +1,5 @@
 import Link from "next/link";
 import { MatchCard } from "@/components/MatchCard";
-import { CURRENT_ROUND } from "@/data/seed";
 import { MODELS, predictRound } from "@/lib/service";
 import { getDeps } from "@/lib/teams";
 import type { ModelId } from "@/lib/types";
@@ -20,15 +19,16 @@ export default async function Home({
   const { model: modelParam } = await searchParams;
   const model = parseModel(modelParam);
   const deps = await getDeps();
-  const preds = predictRound(CURRENT_ROUND, model, deps);
-  const deadline = new Date(CURRENT_ROUND.deadlineAt);
+  const round = deps.round;
+  const preds = predictRound(round, model, deps);
+  const deadline = new Date(round.deadlineAt);
 
   const avgConfidence = preds.reduce((s, p) => s + p.confidence, 0) / preds.length;
   const upsetMatches = preds.filter((p) => p.upset >= 0.9).length;
 
   return (
     <>
-      <h1>{CURRENT_ROUND.name} 予想</h1>
+      <h1>{round.name} 予想</h1>
       <p className="lead">
         投票締切: {deadline.toLocaleString("ja-JP", { dateStyle: "medium", timeStyle: "short" })}
         ・全{preds.length}試合
@@ -68,7 +68,10 @@ export default async function Home({
         {MODELS.find((m) => m.id === model)?.description} ／ 平均自信度 {pct(avgConfidence)}・
         波乱度が高い試合 {upsetMatches}件
         <span className="pill" style={{ marginLeft: 8 }}>
-          データ: {deps.info.source === "database" ? "実データ(DB)" : "サンプル(seed)"}
+          レーティング: {deps.info.source === "database" ? "実データ(DB)" : "サンプル(seed)"}
+        </span>
+        <span className="pill" style={{ marginLeft: 6 }}>
+          開催回: {deps.roundSource === "database" ? "toto公式(DB)" : "サンプル(seed)"}
         </span>
       </p>
 

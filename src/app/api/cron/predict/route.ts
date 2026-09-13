@@ -6,7 +6,6 @@ import { authorizeCron } from "@/lib/cron";
 import { savePredictions } from "@/lib/db";
 import { predictRound } from "@/lib/service";
 import { getDeps } from "@/lib/teams";
-import { CURRENT_ROUND } from "@/data/seed";
 import type { ModelId } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -16,18 +15,20 @@ export async function GET(request: Request) {
   if (denied) return denied;
 
   const deps = await getDeps();
+  const round = deps.round;
   const models: ModelId[] = ["statistical", "news-weighted"];
   const summary: Record<string, number> = {};
 
   for (const model of models) {
-    const preds = predictRound(CURRENT_ROUND, model, deps);
-    await savePredictions(CURRENT_ROUND.id, model, preds);
+    const preds = predictRound(round, model, deps);
+    await savePredictions(round.id, model, preds);
     summary[model] = preds.length;
   }
 
   return NextResponse.json({
     ok: true,
-    round: CURRENT_ROUND.id,
+    round: round.id,
+    roundSource: deps.roundSource,
     persisted: process.env.TURSO_DATABASE_URL ? true : false,
     predicted: summary,
   });

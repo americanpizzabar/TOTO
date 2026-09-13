@@ -63,6 +63,26 @@ ANTHROPIC_API_KEY=...   # あればLLM抽出。無ければルールベースで
 TURSO_DATABASE_URL=...  # 保存先
 ```
 
+## toto開催回（対象13試合）の取り込み
+
+「どの開催回で、どの13試合が対象か」は toto公式が決めるもので公開APIが無いため、
+専用の取り込み経路を用意しています（他のデータ源と同じ DB優先・seedフォールバック）。
+
+```
+toto公式(HTML) / JSON → parseRoundInput() → rounds(Turso) → getCurrentRound() → ページ
+   ├ 全角→半角の正規化で名寄せ（Ｇ大阪→G大阪 等）
+   └ J1以外(J2/J3)など未登録チームは中立レーティングの仮チームで表示を維持
+```
+
+- **取得** `src/lib/provider/toto.ts`:
+  - `TOTO_ROUND_JSON`（開催回JSONを直接指定）が最優先の確実な上書き手段。
+  - `TOTO_HOLDINGS_URL`（JSONならそのまま、HTMLならベストエフォート解析）。
+- **取り込み** `/api/cron/rounds`（`TOTO_SOURCE=toto` の時のみ）が `rounds` を更新。
+- ページの「開催回」バッジで出所（toto公式(DB) / サンプル(seed)）を表示。
+
+> 公式サイトのHTML構造は変わりうるため、HTML解析はベストエフォートです。確実に
+> 正しい開催回を出すには `TOTO_ROUND_JSON` の利用を推奨します。
+
 ## 買い目生成（`src/lib/betting.ts`）
 
 各試合の確率と予算から、○の数（シングル/ダブル/トリプル）を決定。
@@ -73,9 +93,11 @@ TURSO_DATABASE_URL=...  # 保存先
 - **フロント+API**: Next.js 16（App Router）
 - **DB**: Turso (libSQL) — `src/lib/db.ts`。未設定でもseedデータで全機能が動作。
 - **定期処理**: Vercel Cron（`vercel.json`, スケジュールはUTC）
-  - 毎朝: ニュース収集 `/api/cron/news`
-  - 試合前日: 予想再計算 `/api/cron/predict`
-  - 試合翌日: 結果取込・検証 `/api/cron/results`
+  - 開催回取込 `/api/cron/rounds`
+  - チーム実データ取込 `/api/cron/teams`
+  - ニュース収集 `/api/cron/news`
+  - 予想再計算 `/api/cron/predict`
+  - 結果取込・検証 `/api/cron/results`
   - cronは `Authorization: Bearer $CRON_SECRET` で保護。
 
 ## セットアップ

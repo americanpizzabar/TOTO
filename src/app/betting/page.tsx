@@ -1,5 +1,4 @@
 import Link from "next/link";
-import { CURRENT_ROUND } from "@/data/seed";
 import { buildTicket } from "@/lib/betting";
 import { BET_MODES, MODELS, predictRound } from "@/lib/service";
 import { getDeps } from "@/lib/teams";
@@ -29,7 +28,8 @@ export default async function Betting({
   const budget = Math.max(0, Number(sp.budget) || 5000);
 
   const deps = await getDeps();
-  const preds = predictRound(CURRENT_ROUND, model, deps);
+  const round = deps.round;
+  const preds = predictRound(round, model, deps);
   const ticket = buildTicket(preds, mode, budget);
   const predByNo = new Map(preds.map((p) => [p.fixtureNo, p]));
 
@@ -37,7 +37,7 @@ export default async function Betting({
     <>
       <h1>買い目生成</h1>
       <p className="lead">
-        {CURRENT_ROUND.name}・確率にもとづき ○ の付け方を自動最適化します（1口=¥100）。
+        {round.name}・確率にもとづき ○ の付け方を自動最適化します（1口=¥100）。
       </p>
 
       <div className="disclaimer">
