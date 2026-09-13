@@ -9,6 +9,7 @@
 // ------------------------------------------------------------------
 
 import type { NewsFactor, Round, Team } from "@/lib/types";
+import type { TotoRoundInput } from "@/lib/provider/toto";
 
 export const TEAMS: Team[] = [
   { id: "kobe", name: "ヴィッセル神戸", shortName: "神戸", elo: 1618, goalsForPerGame: 1.6, goalsAgainstPerGame: 0.9, recentForm: ["W", "W", "D", "W", "L"], sourceNames: ["Vissel Kobe"] },
@@ -95,28 +96,37 @@ const daysFromNow = (d: number, hour = 14) => {
   return t.toISOString();
 };
 
-/** 現在受付中の回（結果は未確定） */
-export const CURRENT_ROUND: Round = {
-  id: "round-1500",
-  no: 1500,
-  name: "第1500回 toto",
-  deadlineAt: daysFromNow(2, 3),
-  fixtures: [
-    { no: 1, homeTeamId: "kobe", awayTeamId: "iwata", kickoffAt: daysFromNow(2), result: null },
-    { no: 2, homeTeamId: "hiroshima", awayTeamId: "sapporo", kickoffAt: daysFromNow(2), result: null },
-    { no: 3, homeTeamId: "machida", awayTeamId: "fctokyo", kickoffAt: daysFromNow(2), result: null },
-    { no: 4, homeTeamId: "gamba", awayTeamId: "kyoto", kickoffAt: daysFromNow(2), result: null },
-    { no: 5, homeTeamId: "kashima", awayTeamId: "urawa", kickoffAt: daysFromNow(2), result: null },
-    { no: 6, homeTeamId: "cosaka", awayTeamId: "shonan", kickoffAt: daysFromNow(3), result: null },
-    { no: 7, homeTeamId: "marinos", awayTeamId: "kawasaki", kickoffAt: daysFromNow(3), result: null },
-    { no: 8, homeTeamId: "tokyov", awayTeamId: "nagoya", kickoffAt: daysFromNow(3), result: null },
-    { no: 9, homeTeamId: "kashiwa", awayTeamId: "tosu", kickoffAt: daysFromNow(3), result: null },
-    { no: 10, homeTeamId: "niigata", awayTeamId: "fukuoka", kickoffAt: daysFromNow(3), result: null },
-    { no: 11, homeTeamId: "kyoto", awayTeamId: "kobe", kickoffAt: daysFromNow(4), result: null },
-    { no: 12, homeTeamId: "nagoya", awayTeamId: "gamba", kickoffAt: daysFromNow(4), result: null },
-    { no: 13, homeTeamId: "sapporo", awayTeamId: "marinos", kickoffAt: daysFromNow(4), result: null },
-  ],
-};
+/**
+ * 現在の開催回（既定/フォールバック）。
+ *   toto公式ページはJS描画(SPA)で自動取得が難しいため、既定値として実回を保持する。
+ *   チーム名で表現し（J1以外は仮チームに自動変換）、getCurrentRound() が
+ *   parseRounds() を通して Round に変換・締切で自動選択する。
+ *   ライブ取得(TOTO_SOURCE=toto)やTOTO_ROUND_JSONを設定すればそちらが優先。
+ *
+ *   ※更新方法: 新しい回になったら下記の no / deadlineAt / matches を差し替える。
+ */
+export const SEED_ROUND_INPUTS: TotoRoundInput[] = [
+  {
+    no: 1654,
+    name: "第1654回 toto",
+    deadlineAt: "2026-09-19T08:50:00Z", // 2026/09/19 17:50 JST
+    matches: [
+      { no: 1, home: "福岡", away: "広島", kickoffAt: "2026-09-19T05:00:00Z" },
+      { no: 2, home: "浦和", away: "東京V", kickoffAt: "2026-09-19T05:00:00Z" },
+      { no: 3, home: "清水", away: "千葉", kickoffAt: "2026-09-19T05:00:00Z" },
+      { no: 4, home: "岡山", away: "京都", kickoffAt: "2026-09-19T05:00:00Z" },
+      { no: 5, home: "FC東京", away: "名古屋", kickoffAt: "2026-09-19T05:00:00Z" },
+      { no: 6, home: "長崎", away: "C大阪", kickoffAt: "2026-09-19T05:00:00Z" },
+      { no: 7, home: "横浜FM", away: "水戸", kickoffAt: "2026-09-19T05:00:00Z" },
+      { no: 8, home: "町田", away: "柏", kickoffAt: "2026-09-20T05:00:00Z" },
+      { no: 9, home: "G大阪", away: "神戸", kickoffAt: "2026-09-20T05:00:00Z" },
+      { no: 10, home: "山形", away: "富山", kickoffAt: "2026-09-19T05:00:00Z" },
+      { no: 11, home: "藤枝", away: "大宮", kickoffAt: "2026-09-19T05:00:00Z" },
+      { no: 12, home: "新潟", away: "磐田", kickoffAt: "2026-09-19T05:00:00Z" },
+      { no: 13, home: "甲府", away: "徳島", kickoffAt: "2026-09-19T05:00:00Z" },
+    ],
+  },
+];
 
 /** 過去回（結果確定済み）— 成績検証・バックテスト用 */
 export const PAST_ROUNDS: Round[] = [
@@ -164,7 +174,7 @@ export const PAST_ROUNDS: Round[] = [
   },
 ];
 
-export const ALL_ROUNDS: Round[] = [CURRENT_ROUND, ...PAST_ROUNDS];
+export const ALL_ROUNDS: Round[] = [...PAST_ROUNDS];
 
 export function getRound(id: string): Round | undefined {
   return ALL_ROUNDS.find((r) => r.id === id);
