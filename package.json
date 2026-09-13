@@ -3,6 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "description": "AIがJリーグtoto全13試合を根拠・自信度つきで予想し、買い目生成と成績検証まで行うアプリ",
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "dev": "next dev",
     "build": "next build",
