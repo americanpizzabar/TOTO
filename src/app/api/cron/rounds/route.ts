@@ -1,12 +1,14 @@
-// 定期実行: toto公式（またはTOTO_ROUND_JSON）から現在の開催回・対象13試合を
-// 取得し、Turso の rounds テーブルへ保存する。以降のページはDBの開催回を表示。
+// 定期実行: toto公式（またはTOTO_ROUND_JSON）から発売中の開催回・対象試合を
+// 取得し、Turso の rounds テーブルへ保存する。同時発売の複数回にも対応。
+// 「その日に発売中の回」の自動選択は getCurrentRound()（締切ベース）が担当。
 //
 // TOTO_SOURCE=toto のときのみ取得（既定は取得せずseedの開催回を使用）。
 
 import { NextResponse } from "next/server";
 import { authorizeCron } from "@/lib/cron";
-import { saveRound } from "@/lib/db";
-import { fetchCurrentRound } from "@/lib/provider/toto";
+import { saveRounds } from "@/lib/db";
+import { fetchRounds } from "@/lib/provider/toto";
+import { getCurrentRound } from "@/lib/rounds";
 import { getTeams } from "@/lib/teams";
 
 export const dynamic = "force-dynamic";
@@ -27,19 +29,20 @@ export async function GET(request: Request) {
 
   try {
     const { teams } = await getTeams();
-    const { round, extraTeams } = await fetchCurrentRound(teams);
-    if (round.fixtures.length === 0) {
-      throw new Error("対象試合を取得できませんでした");
-    }
-    await saveRound(round, extraTeams, "toto");
+    const { rounds, extraTeams } = await fetchRounds(teams);
+    if (rounds.length === 0) throw new Error("開催回を取得できませんでした");
+    await saveRounds(rounds, extraTeams, "toto");
+
+    // 保存後、締切ベースで自動選択される「発売中の回」を確認
+    const current = await getCurrentRound();
+
     return NextResponse.json({
       ok: true,
       source,
       persisted: process.env.TURSO_DATABASE_URL ? true : false,
-      round: { id: round.id, no: round.no, name: round.name, deadlineAt: round.deadlineAt },
-      matches: round.fixtures.length,
+      savedRounds: rounds.map((r) => ({ no: r.no, name: r.name, deadlineAt: r.deadlineAt })),
       unmatchedTeams: extraTeams.map((t) => t.name),
-      fixtures: round.fixtures.map((f) => ({ no: f.no, home: f.homeTeamId, away: f.awayTeamId })),
+      selectedNow: { no: current.round.no, name: current.round.name, source: current.source },
     });
   } catch (err) {
     return NextResponse.json(

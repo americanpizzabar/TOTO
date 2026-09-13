@@ -139,44 +139,42 @@ export async function savePredictions(
   );
 }
 
-/** 開催回を保存（upsert）。extraTeams（未登録チーム）も同梱で保持。 */
-export async function saveRound(
-  round: Round,
+/** 複数の開催回を保存（upsert）。extraTeams（未登録チーム）も各行に同梱。 */
+export async function saveRounds(
+  rounds: Round[],
   extraTeams: Team[],
   source: string,
 ): Promise<void> {
   const client = getClient();
   if (!client) return;
   await ensureSchema(client);
-  await client.execute({
-    sql: `INSERT INTO rounds
-      (id, no, name, deadline_at, fixtures_json, extra_teams_json, source, updated_at)
-      VALUES (?,?,?,?,?,?,?,?)
-      ON CONFLICT(id) DO UPDATE SET
-        no=excluded.no, name=excluded.name, deadline_at=excluded.deadline_at,
-        fixtures_json=excluded.fixtures_json, extra_teams_json=excluded.extra_teams_json,
-        source=excluded.source, updated_at=excluded.updated_at`,
-    args: [
-      round.id,
-      round.no,
-      round.name,
-      round.deadlineAt,
-      JSON.stringify(round.fixtures),
-      JSON.stringify(extraTeams),
-      source,
-      new Date().toISOString(),
-    ],
-  });
+  const now = new Date().toISOString();
+  const extraJson = JSON.stringify(extraTeams);
+  await client.batch(
+    rounds.map((round) => ({
+      sql: `INSERT INTO rounds
+        (id, no, name, deadline_at, fixtures_json, extra_teams_json, source, updated_at)
+        VALUES (?,?,?,?,?,?,?,?)
+        ON CONFLICT(id) DO UPDATE SET
+          no=excluded.no, name=excluded.name, deadline_at=excluded.deadline_at,
+          fixtures_json=excluded.fixtures_json, extra_teams_json=excluded.extra_teams_json,
+          source=excluded.source, updated_at=excluded.updated_at`,
+      args: [
+        round.id,
+        round.no,
+        round.name,
+        round.deadlineAt,
+        JSON.stringify(round.fixtures),
+        extraJson,
+        source,
+        now,
+      ],
+    })),
+    "write",
+  );
 }
 
-/** 最新（no最大）の開催回を読む。未設定/空なら null。 */
-export async function loadCurrentRound(): Promise<{ round: Round; extraTeams: Team[] } | null> {
-  const client = getClient();
-  if (!client) return null;
-  await ensureSchema(client);
-  const rs = await client.execute("SELECT * FROM rounds ORDER BY no DESC LIMIT 1");
-  if (rs.rows.length === 0) return null;
-  const r = rs.rows[0];
+function rowToRound(r: Record<string, unknown>): { round: Round; extraTeams: Team[] } {
   return {
     round: {
       id: String(r.id),
@@ -187,6 +185,28 @@ export async function loadCurrentRound(): Promise<{ round: Round; extraTeams: Te
     },
     extraTeams: JSON.parse(String(r.extra_teams_json)),
   };
+}
+
+/**
+ * その日に発売中の開催回を読む。
+ *   1) 締切が未来の回のうち、いちばん早く締め切る回（＝現在発売中で次に締切）
+ *   2) 無ければ、締切が最も新しい回（過去分のフォールバック）
+ * 未設定/空なら null。
+ */
+export async function loadCurrentRound(): Promise<{ round: Round; extraTeams: Team[] } | null> {
+  const client = getClient();
+  if (!client) return null;
+  await ensureSchema(client);
+  const now = new Date().toISOString();
+  let rs = await client.execute({
+    sql: "SELECT * FROM rounds WHERE deadline_at >= ? ORDER BY deadline_at ASC LIMIT 1",
+    args: [now],
+  });
+  if (rs.rows.length === 0) {
+    rs = await client.execute("SELECT * FROM rounds ORDER BY deadline_at DESC LIMIT 1");
+  }
+  if (rs.rows.length === 0) return null;
+  return rowToRound(rs.rows[0] as unknown as Record<string, unknown>);
 }
 
 /** チームのレーティングを保存（upsert） */

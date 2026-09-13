@@ -69,15 +69,18 @@ TURSO_DATABASE_URL=...  # 保存先
 専用の取り込み経路を用意しています（他のデータ源と同じ DB優先・seedフォールバック）。
 
 ```
-toto公式(HTML) / JSON → parseRoundInput() → rounds(Turso) → getCurrentRound() → ページ
+toto公式(HTML) / JSON(単体 or 配列) → parseRounds() → rounds(Turso) → getCurrentRound() → ページ
    ├ 全角→半角の正規化で名寄せ（Ｇ大阪→G大阪 等）
    └ J1以外(J2/J3)など未登録チームは中立レーティングの仮チームで表示を維持
 ```
 
 - **取得** `src/lib/provider/toto.ts`:
-  - `TOTO_ROUND_JSON`（開催回JSONを直接指定）が最優先の確実な上書き手段。
-  - `TOTO_HOLDINGS_URL`（JSONならそのまま、HTMLならベストエフォート解析）。
-- **取り込み** `/api/cron/rounds`（`TOTO_SOURCE=toto` の時のみ）が `rounds` を更新。
+  - `TOTO_ROUND_JSON`（開催回JSON。**単体でも配列でも可**）が最優先の確実な上書き手段。
+  - `TOTO_HOLDINGS_URL`（JSON配列/単体ならそのまま、HTMLならベストエフォート解析）。
+- **取り込み** `/api/cron/rounds`（`TOTO_SOURCE=toto` の時のみ）が同時発売の複数回も `rounds` に保存。
+- **その日に発売中の回を自動選択**: `getCurrentRound()` が締切ベースで
+  「締切が未来のうち最も早く締め切る回（＝現在発売中で次に締切）」を選ぶ。締切が過ぎれば
+  次の回へ自動的に切り替わる（再取得不要）。全て過去なら直近の回にフォールバック。
 - ページの「開催回」バッジで出所（toto公式(DB) / サンプル(seed)）を表示。
 
 > 公式サイトのHTML構造は変わりうるため、HTML解析はベストエフォートです。確実に

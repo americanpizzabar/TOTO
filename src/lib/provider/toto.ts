@@ -158,35 +158,64 @@ async function fetchText(url: string): Promise<string> {
   }
 }
 
-function parseMaybeJson(text: string): TotoRoundInput | null {
-  try {
-    const data = JSON.parse(text);
-    if (data && Array.isArray(data.matches) && typeof data.no === "number") {
-      return data as TotoRoundInput;
-    }
-  } catch {
-    /* not json */
-  }
-  return null;
+export interface RoundsResult {
+  rounds: Round[];
+  extraTeams: Team[];
 }
 
-/** 現在の開催回を取得する（JSON上書き優先 → URL取得 → HTML解析） */
-export async function fetchCurrentRound(teams: Team[]): Promise<RoundResult> {
+/** JSON（開催回オブジェクト or その配列）を TotoRoundInput[] に整える */
+function coerceInputs(data: unknown): TotoRoundInput[] {
+  const arr = Array.isArray(data) ? data : [data];
+  return arr.filter(
+    (d): d is TotoRoundInput =>
+      !!d &&
+      typeof (d as TotoRoundInput).no === "number" &&
+      Array.isArray((d as TotoRoundInput).matches),
+  );
+}
+
+function parseMaybeJsonInputs(text: string): TotoRoundInput[] | null {
+  try {
+    const inputs = coerceInputs(JSON.parse(text));
+    return inputs.length ? inputs : null;
+  } catch {
+    return null;
+  }
+}
+
+/** 複数の開催回入力をまとめて Round[] + extraTeams に変換 */
+export function parseRounds(inputs: TotoRoundInput[], teams: Team[]): RoundsResult {
+  const extra = new Map<string, Team>();
+  const rounds: Round[] = [];
+  for (const input of inputs) {
+    const { round, extraTeams } = parseRoundInput(input, teams);
+    rounds.push(round);
+    for (const t of extraTeams) extra.set(t.id, t);
+  }
+  return { rounds, extraTeams: [...extra.values()] };
+}
+
+/**
+ * その日に発売している開催回を取得する（複数同時発売にも対応）。
+ * JSON上書き優先 → URL取得（JSON配列/単体） → HTML解析（ベストエフォート・単体）。
+ * 「どれが発売中か」は締切日時にもとづき getCurrentRound() が自動選択する。
+ */
+export async function fetchRounds(teams: Team[]): Promise<RoundsResult> {
   const override = process.env.TOTO_ROUND_JSON;
   if (override) {
-    const input = parseMaybeJson(override);
-    if (!input) throw new Error("TOTO_ROUND_JSON の形式が不正です");
-    return parseRoundInput(input, teams);
+    const inputs = parseMaybeJsonInputs(override);
+    if (!inputs) throw new Error("TOTO_ROUND_JSON の形式が不正です");
+    return parseRounds(inputs, teams);
   }
 
   const url = process.env.TOTO_HOLDINGS_URL;
   if (!url) throw new Error("TOTO_HOLDINGS_URL も TOTO_ROUND_JSON も未設定です");
 
   const body = await fetchText(url);
-  const asJson = parseMaybeJson(body);
-  if (asJson) return parseRoundInput(asJson, teams);
+  const asJson = parseMaybeJsonInputs(body);
+  if (asJson) return parseRounds(asJson, teams);
 
-  // HTML ベストエフォート
+  // HTML ベストエフォート（単体）
   const no = extractRoundNo(body);
   const matches = extractMatches(body, teams);
   if (!no || matches.length === 0) {
@@ -194,5 +223,5 @@ export async function fetchCurrentRound(teams: Team[]): Promise<RoundResult> {
       `HTMLから開催回/対戦を十分に抽出できませんでした（no=${no}, matches=${matches.length}）。TOTO_ROUND_JSONの利用を推奨。`,
     );
   }
-  return parseRoundInput({ no, matches }, teams);
+  return parseRounds([{ no, matches }], teams);
 }
