@@ -142,6 +142,10 @@ function extractMatches(html: string, teams: Team[]): TotoRoundInput["matches"] 
   return matches;
 }
 
+/** 取得元の既定URL（toto公式スマホ版の購入ページ） */
+const DEFAULT_TOTO_URL =
+  "https://sp.toto-dream.com/dcs/subos/screen/ss01/sssl021/PGSSSL02101InittotoSP.form?oid=td_toto_totolp2024_fv_buy_bt1";
+
 async function fetchText(url: string): Promise<string> {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
@@ -149,7 +153,13 @@ async function fetchText(url: string): Promise<string> {
     const res = await fetch(url, {
       signal: ctrl.signal,
       cache: "no-store",
-      headers: { "user-agent": "toto-predictor/1.0 (+https://example.com)" },
+      headers: {
+        // ブラウザ相当のヘッダ（サイトによっては必須）
+        "user-agent":
+          "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
+        accept: "text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8",
+        "accept-language": "ja,en;q=0.8",
+      },
     });
     if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`);
     return await res.text();
@@ -208,8 +218,7 @@ export async function fetchRounds(teams: Team[]): Promise<RoundsResult> {
     return parseRounds(inputs, teams);
   }
 
-  const url = process.env.TOTO_HOLDINGS_URL;
-  if (!url) throw new Error("TOTO_HOLDINGS_URL も TOTO_ROUND_JSON も未設定です");
+  const url = process.env.TOTO_HOLDINGS_URL || DEFAULT_TOTO_URL;
 
   const body = await fetchText(url);
   const asJson = parseMaybeJsonInputs(body);
@@ -219,8 +228,12 @@ export async function fetchRounds(teams: Team[]): Promise<RoundsResult> {
   const no = extractRoundNo(body);
   const matches = extractMatches(body, teams);
   if (!no || matches.length === 0) {
+    // JSレンダリング(SPA)の可能性を診断メッセージに含める
+    const scriptHeavy = (body.match(/<script/gi)?.length ?? 0) >= 3;
+    const textLen = stripTags(body).length;
     throw new Error(
-      `HTMLから開催回/対戦を十分に抽出できませんでした（no=${no}, matches=${matches.length}）。TOTO_ROUND_JSONの利用を推奨。`,
+      `HTMLから開催回/対戦を十分に抽出できませんでした（no=${no}, matches=${matches.length}, htmlLen=${body.length}, textLen=${textLen}, scripts=${scriptHeavy}）。` +
+        `テキストが少なくscriptが多い場合はJavaScript描画(SPA)で、通常のfetchでは試合が取得できません。その場合は TOTO_ROUND_JSON で開催回を指定してください（URL: ${url}）。`,
     );
   }
   return parseRounds([{ no, matches }], teams);
