@@ -9,9 +9,20 @@
 //   実データ接続の有無にかかわらずアプリが動作する。
 // ------------------------------------------------------------------
 
-import { loadTeamsFromDb } from "./db";
+import { loadNewsFactors, loadTeamsFromDb } from "./db";
 import { NEWS, TEAMS } from "@/data/seed";
 import type { NewsFactor, Team } from "./types";
+
+/** ニュース特徴量を取得（DB優先、seedフォールバック） */
+export async function getNews(): Promise<{ news: NewsFactor[]; source: "database" | "seed" }> {
+  try {
+    const fromDb = await loadNewsFactors();
+    if (fromDb && fromDb.length > 0) return { news: fromDb, source: "database" };
+  } catch (err) {
+    console.error("[news] DB読み込み失敗、seedにフォールバック:", err);
+  }
+  return { news: NEWS, source: "seed" };
+}
 
 export interface DataSourceInfo {
   source: "database" | "seed";
@@ -54,12 +65,12 @@ export async function getDeps(): Promise<{
   news: NewsFactor[];
   info: DataSourceInfo;
 }> {
-  const { teams, info } = await getTeams();
+  const [{ teams, info }, { news }] = await Promise.all([getTeams(), getNews()]);
   const teamMap = Object.fromEntries(teams.map((t) => [t.id, t]));
   return {
     teamById: (id: string) => teamMap[id],
     teamMap,
-    news: NEWS,
+    news,
     info,
   };
 }

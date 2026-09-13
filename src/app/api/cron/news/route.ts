@@ -1,21 +1,50 @@
-// 毎朝: ニュースを収集し、LLMで「チーム別の影響度スコア」に変換して保存する。
-// ここはパイプラインの枠のみ。実運用ではRSS/クラブ公式/スポーツメディアを収集し、
-// ANTHROPIC_API_KEY を使って要約→特徴量化する。
+// 毎朝: ニュースを収集し、LLM（またはルールベース）で
+// 「チーム別の影響度スコア(NewsFactor)」に変換して保存する。
+//
+// NEWS_SOURCE=feeds のときのみ収集を実行（既定は収集せずseedのNewsFactorを使用）。
+// LLMは ANTHROPIC_API_KEY があるときのみ使用し、無ければルールベースで抽出。
 
 import { NextResponse } from "next/server";
 import { authorizeCron } from "@/lib/cron";
-import { NEWS } from "@/data/seed";
+import { replaceNewsFactors } from "@/lib/db";
+import { collectNewsFactors } from "@/lib/news";
+import { getTeams } from "@/lib/teams";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 60;
 
 export async function GET(request: Request) {
   const denied = authorizeCron(request);
   if (denied) return denied;
 
-  // TODO(next): ニュース収集 → LLM要約 → NewsFactor化 → news_factors テーブルへ保存
-  return NextResponse.json({
-    ok: true,
-    note: "ニュース収集パイプラインの枠。現状はseedのNewsFactorを使用。",
-    sampleFactors: NEWS.length,
-  });
+  const source = process.env.NEWS_SOURCE || "seed";
+  if (source !== "feeds") {
+    return NextResponse.json({
+      ok: true,
+      source,
+      note: "NEWS_SOURCE=feeds を設定するとニュースを収集します。現在はseedのNewsFactorを使用。",
+    });
+  }
+
+  try {
+    const { teams } = await getTeams();
+    const { factors, meta } = await collectNewsFactors(teams);
+    await replaceNewsFactors(factors);
+    return NextResponse.json({
+      ok: true,
+      source,
+      persisted: process.env.TURSO_DATABASE_URL ? true : false,
+      factors: factors.length,
+      byTeam: factors.reduce<Record<string, number>>((acc, f) => {
+        acc[f.teamId] = (acc[f.teamId] ?? 0) + 1;
+        return acc;
+      }, {}),
+      meta,
+    });
+  } catch (err) {
+    return NextResponse.json(
+      { ok: false, source, error: err instanceof Error ? err.message : String(err) },
+      { status: 502 },
+    );
+  }
 }

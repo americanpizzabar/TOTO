@@ -34,7 +34,34 @@ AIがJリーグ **toto全13試合** を「根拠・自信度・波乱度」つ�
 - ACL・連戦後の中2〜3日 → 疲労ペナルティ
 
 `統計モデル`（ニュース非使用）と `ニュース重視モデル` を並べてバックテスト比較できます。
-将来は毎朝ニュースを収集し、LLMで要約→特徴量化する部分（`/api/cron/news`）。
+
+#### ニュース収集パイプライン
+
+```
+RSS/Atom フィード → fetchAllFeeds() → 特徴量化 → news_factors(Turso)
+                                       ├ extract-llm.ts（Claude, キーがあれば優先）
+                                       └ extract.ts   （ルールベース, キー不要のフォールバック）
+                                                              ↓ 読み出し
+                                    予想 ← getNews()（DB優先・seedフォールバック）
+```
+
+- **取得** `src/lib/news/rss.ts`: RSS 2.0 / Atom を外部依存なしでパース。既定は Google News の
+  Jリーグ検索フィード（`NEWS_FEEDS` で上書き可）。期間・件数で絞り重複排除。
+- **LLM抽出** `src/lib/news/extract-llm.ts`: Claude（既定 `claude-opus-5`）が記事を読み、
+  チーム別の `{attack/defense/variance}Multiplier` に変換。`ANTHROPIC_API_KEY` がある時のみ使用。
+- **ルール抽出** `src/lib/news/extract.ts`: キーワード（負傷/出停/監督交代/連戦…）で分類する
+  フォールバック。**APIキー不要で常に動作**。出力乗数は安全域にクランプ。
+- **取り込み** `/api/cron/news`（`NEWS_SOURCE=feeds` の時のみ）が収集→ `news_factors` を差し替え。
+  リクエスト経路はDBから読むため外部フィード/LLMに依存しません。
+
+有効化:
+
+```bash
+# .env
+NEWS_SOURCE=feeds
+ANTHROPIC_API_KEY=...   # あればLLM抽出。無ければルールベースで動作
+TURSO_DATABASE_URL=...  # 保存先
+```
 
 ## 買い目生成（`src/lib/betting.ts`）
 

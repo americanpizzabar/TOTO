@@ -8,7 +8,7 @@
 // ------------------------------------------------------------------
 
 import { createClient, type Client } from "@libsql/client";
-import type { MatchPrediction, Outcome, Team } from "./types";
+import type { MatchPrediction, NewsFactor, Outcome, Team } from "./types";
 
 let _client: Client | null | undefined;
 
@@ -175,6 +175,50 @@ export async function loadTeamsFromDb(): Promise<Team[] | null> {
     goalsForPerGame: Number(r.gf_per_game),
     goalsAgainstPerGame: Number(r.ga_per_game),
     recentForm: JSON.parse(String(r.recent_form)),
+  }));
+}
+
+/** ニュース特徴量を丸ごと差し替え（収集はスナップショットのため全消し→挿入） */
+export async function replaceNewsFactors(factors: NewsFactor[]): Promise<void> {
+  const client = getClient();
+  if (!client) return;
+  await ensureSchema(client);
+  const now = new Date().toISOString();
+  const stmts = [
+    "DELETE FROM news_factors",
+    ...factors.map((f) => ({
+      sql: `INSERT INTO news_factors
+        (id, team_id, summary, attack_mult, defense_mult, variance_mult, kind, collected_at)
+        VALUES (?,?,?,?,?,?,?,?)`,
+      args: [
+        `${f.teamId}-${f.kind}-${Math.random().toString(36).slice(2, 8)}`,
+        f.teamId,
+        f.summary,
+        f.attackMultiplier,
+        f.defenseMultiplier,
+        f.varianceMultiplier,
+        f.kind,
+        now,
+      ],
+    })),
+  ];
+  await client.batch(stmts, "write");
+}
+
+/** ニュース特徴量を読む。未設定/空なら null。 */
+export async function loadNewsFactors(): Promise<NewsFactor[] | null> {
+  const client = getClient();
+  if (!client) return null;
+  await ensureSchema(client);
+  const rs = await client.execute("SELECT * FROM news_factors");
+  if (rs.rows.length === 0) return null;
+  return rs.rows.map((r) => ({
+    teamId: String(r.team_id),
+    summary: String(r.summary),
+    attackMultiplier: Number(r.attack_mult),
+    defenseMultiplier: Number(r.defense_mult),
+    varianceMultiplier: Number(r.variance_mult),
+    kind: String(r.kind) as NewsFactor["kind"],
   }));
 }
 
