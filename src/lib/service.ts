@@ -5,6 +5,8 @@
 // ------------------------------------------------------------------
 
 import { buildTicket } from "./betting";
+import type { DCParams } from "./dixon-coles";
+import { scoreAll, type ScoreSet } from "./metrics";
 import { predictMatch } from "./predict";
 import type {
   BetMode,
@@ -19,6 +21,8 @@ import type {
 export interface Deps {
   teamById: (id: string) => Team | undefined;
   news: NewsFactor[];
+  /** Dixon-Coles 推定パラメータ（あればアンサンブル） */
+  dc?: DCParams | null;
 }
 
 /** 1開催回の全試合を予想する */
@@ -32,7 +36,7 @@ export function predictRound(round: Round, model: ModelId, deps: Deps): MatchPre
     const relevant = deps.news.filter(
       (n) => n.teamId === home.id || n.teamId === away.id,
     );
-    return predictMatch({ fixture, home, away, news: relevant, model });
+    return predictMatch({ fixture, home, away, news: relevant, model, dc: deps.dc });
   });
 }
 
@@ -53,6 +57,7 @@ export interface RoundBacktest {
     actual: Outcome;
     hit: boolean;
     confidence: number;
+    probs: Record<Outcome, number>;
   }[];
 }
 
@@ -69,6 +74,7 @@ export function backtestRound(round: Round, model: ModelId, deps: Deps): RoundBa
         actual: fx.result,
         hit: p.pick === fx.result,
         confidence: p.confidence,
+        probs: p.probabilities,
       };
     })
     .filter((d): d is NonNullable<typeof d> => d !== null);
@@ -94,6 +100,8 @@ export interface ModelSummary {
   totalMatches: number;
   matchAccuracy: number;
   perfectCount: number;
+  /** 確率予測の精密さ（RPS/Brier/対数損失/情報利得） */
+  scores: ScoreSet;
   /**
    * 参考回収率（サンプル配当による試算）。
    * 実配当データがないため、balancedの買い目が完全的中したら
@@ -117,6 +125,9 @@ export function summarizeModel(pastRounds: Round[], model: ModelId, deps: Deps):
   const totalCorrect = rounds.reduce((s, r) => s + r.correct, 0);
   const totalMatches = rounds.reduce((s, r) => s + r.total, 0);
   const perfectCount = rounds.filter((r) => r.perfect).length;
+  const scores = scoreAll(
+    rounds.flatMap((r) => r.details.map((d) => ({ probs: d.probs, actual: d.actual }))),
+  );
 
   let spent = 0;
   let returned = 0;
@@ -140,6 +151,7 @@ export function summarizeModel(pastRounds: Round[], model: ModelId, deps: Deps):
     totalMatches,
     matchAccuracy: totalMatches > 0 ? totalCorrect / totalMatches : 0,
     perfectCount,
+    scores,
     sampleRoi: {
       budgetPerRound: BUDGET_PER_ROUND,
       assumedJackpot: ASSUMED_JACKPOT,

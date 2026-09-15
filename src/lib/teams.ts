@@ -9,7 +9,8 @@
 //   実データ接続の有無にかかわらずアプリが動作する。
 // ------------------------------------------------------------------
 
-import { loadNewsFactors, loadTeamsFromDb } from "./db";
+import { loadModelParams, loadNewsFactors, loadTeamsFromDb } from "./db";
+import type { DCParams } from "./dixon-coles";
 import { getCurrentRound } from "./rounds";
 import { NEWS, TEAMS } from "@/data/seed";
 import type { NewsFactor, Round, Team } from "./types";
@@ -73,11 +74,13 @@ export async function getDeps(): Promise<{
   info: DataSourceInfo;
   round: Round;
   roundSource: "database" | "seed";
+  dc: DCParams | null;
 }> {
-  const [{ teams, info }, { news }, roundInfo] = await Promise.all([
+  const [{ teams, info }, { news }, roundInfo, dc] = await Promise.all([
     getTeams(),
     getNews(),
     getCurrentRound(),
+    loadModelParams<DCParams>("dixon-coles").catch(() => null),
   ]);
   // 実チームを優先しつつ、開催回の仮チームを補完
   const teamMap = Object.fromEntries(
@@ -90,5 +93,6 @@ export async function getDeps(): Promise<{
     info,
     round: roundInfo.round,
     roundSource: roundInfo.source,
+    dc,
   };
 }

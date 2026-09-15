@@ -14,7 +14,7 @@
 // ------------------------------------------------------------------
 
 import { LEAGUE_AVG_GOALS } from "../predict";
-import type { Fixture, Round, Team } from "../types";
+import type { Fixture, Outcome, Round, Team } from "../types";
 import { buildNameIndex, normalizeName } from "./names";
 
 const TIMEOUT_MS = 12_000;
@@ -24,7 +24,24 @@ export interface TotoRoundInput {
   no: number;
   name?: string;
   deadlineAt?: string;
-  matches: { no?: number; home: string; away: string; kickoffAt?: string }[];
+  matches: {
+    no?: number;
+    home: string;
+    away: string;
+    kickoffAt?: string;
+    /** 群衆の投票率（%でも比率でもよい。内部で正規化）[ホーム,引分,アウェイ] または {HOME,DRAW,AWAY} */
+    support?: Record<Outcome, number> | [number, number, number];
+  }[];
+}
+
+function toSupport(
+  s: Record<Outcome, number> | [number, number, number] | undefined,
+): Record<Outcome, number> | null {
+  if (!s) return null;
+  const [h, d, a] = Array.isArray(s) ? s : [s.HOME, s.DRAW, s.AWAY];
+  const total = (h || 0) + (d || 0) + (a || 0);
+  if (!(total > 0)) return null;
+  return { HOME: h / total, DRAW: d / total, AWAY: a / total };
 }
 
 export interface RoundResult {
@@ -77,6 +94,7 @@ export function parseRoundInput(input: TotoRoundInput, teams: Team[]): RoundResu
     awayTeamId: resolve(m.away),
     kickoffAt: m.kickoffAt ?? daysFromNow(2, 5),
     result: null,
+    support: toSupport(m.support),
   }));
 
   const round: Round = {

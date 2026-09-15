@@ -12,6 +12,8 @@
 //     - ニュース要因（怪我・出場停止・監督交代・疲労）※news-weightedモデルのみ
 // ------------------------------------------------------------------
 
+import type { DCParams } from "./dixon-coles";
+import { predictDC } from "./dixon-coles";
 import { HOME_ADVANTAGE_ELO } from "./elo";
 import { scoreMatrix } from "./poisson";
 import type {
@@ -84,12 +86,46 @@ function normalizedEntropy(probs: Record<Outcome, number>): number {
   return clamp(h / Math.log(3), 0, 1);
 }
 
+/** 群衆の投票率を合計1に正規化。無ければ null。 */
+function normalizeSupport(
+  s: Record<Outcome, number> | null | undefined,
+): Record<Outcome, number> | null {
+  if (!s) return null;
+  const total = s.HOME + s.DRAW + s.AWAY;
+  if (!(total > 0)) return null;
+  return { HOME: s.HOME / total, DRAW: s.DRAW / total, AWAY: s.AWAY / total };
+}
+
+/** 2つの確率分布を重み wA で線形結合し正規化 */
+function blendProbs(
+  a: Record<Outcome, number>,
+  b: Record<Outcome, number>,
+  wA: number,
+): Record<Outcome, number> {
+  const w = clamp(wA, 0, 1);
+  const m = {
+    HOME: a.HOME * w + b.HOME * (1 - w),
+    DRAW: a.DRAW * w + b.DRAW * (1 - w),
+    AWAY: a.AWAY * w + b.AWAY * (1 - w),
+  };
+  const t = m.HOME + m.DRAW + m.AWAY || 1;
+  return { HOME: m.HOME / t, DRAW: m.DRAW / t, AWAY: m.AWAY / t };
+}
+
+/** 実データを持つチームか（合成の仮チームは信頼度0） */
+function teamConfidence(t: Team): number {
+  if (t.id.startsWith("ext-")) return 0;
+  return 1;
+}
+
 export interface PredictInput {
   fixture: Fixture;
   home: Team;
   away: Team;
   news: NewsFactor[]; // この試合の両チームに関するニュース
   model: ModelId;
+  /** Dixon-Coles の推定パラメータ（あればアンサンブルに使用） */
+  dc?: DCParams | null;
 }
 
 /** 1試合を予想する */
@@ -142,13 +178,48 @@ export function predictMatch(input: PredictInput): MatchPrediction {
   lambdaHome = clamp(lambdaHome, LAMBDA_MIN, LAMBDA_MAX);
   lambdaAway = clamp(lambdaAway, LAMBDA_MIN, LAMBDA_MAX);
 
-  // --- 1X2確率 ---
+  // --- 1X2確率（モデル単独） ---
   const sm = scoreMatrix(lambdaHome, lambdaAway);
-  let probabilities = sm.probabilities;
+  let modelProbabilities = sm.probabilities;
+
+  // --- Dixon-Coles（最尤推定）とのアンサンブル ---
+  let dcWeight = 0;
+  if (input.dc) {
+    const inH = input.dc.att[home.id] !== undefined;
+    const inA = input.dc.att[away.id] !== undefined;
+    dcWeight = inH && inA ? 0.6 : inH || inA ? 0.3 : 0;
+    if (dcWeight > 0) {
+      const dcp = predictDC(input.dc, home.id, away.id).probabilities;
+      modelProbabilities = blendProbs(dcp, modelProbabilities, dcWeight);
+    }
+  }
 
   // --- 監督交代などの不確実性で分布を広げる（波乱度） ---
   const varianceMix = (homeAgg.variance - 1) * 0.5 + (awayAgg.variance - 1) * 0.5;
-  if (varianceMix > 0) probabilities = widen(probabilities, varianceMix);
+  if (varianceMix > 0) modelProbabilities = widen(modelProbabilities, varianceMix);
+
+  // --- 群衆の投票率を統合（事前分布）＆妙味(value)分析 ---
+  const crowd = normalizeSupport(fixture.support);
+  const dataConfidence = (teamConfidence(home) + teamConfidence(away)) / 2;
+  let probabilities = modelProbabilities;
+  let value: MatchPrediction["value"] = null;
+  if (crowd) {
+    // データ信頼度が高いほどモデルを重視（最大0.65）。仮チーム対戦は群衆に委ねる。
+    const wModel = 0.65 * dataConfidence;
+    probabilities = blendProbs(modelProbabilities, crowd, wModel);
+    // モデルが独自の情報を持つ試合のみ、群衆との乖離を「妙味」として提示
+    if (dataConfidence >= 0.5) {
+      const edge: Record<Outcome, number> = {
+        HOME: modelProbabilities.HOME - crowd.HOME,
+        DRAW: modelProbabilities.DRAW - crowd.DRAW,
+        AWAY: modelProbabilities.AWAY - crowd.AWAY,
+      };
+      const bestOutcome = (Object.entries(edge) as [Outcome, number][]).sort(
+        (a, b) => b[1] - a[1],
+      )[0][0];
+      value = { edge, bestOutcome, bestEdge: edge[bestOutcome] };
+    }
+  }
 
   // --- pick / 自信度 / 波乱度 ---
   const entries = Object.entries(probabilities) as [Outcome, number][];
@@ -200,11 +271,50 @@ export function predictMatch(input: PredictInput): MatchPrediction {
     });
   }
 
+  if (input.dc && dcWeight > 0) {
+    const dcp = predictDC(input.dc, home.id, away.id).probabilities;
+    reasons.push({
+      label: "Dixon-Coles(最尤推定)",
+      impact: clamp(dcp.HOME - dcp.AWAY, -1, 1),
+      detail: `統計モデル予測 H${Math.round(dcp.HOME * 100)}%/D${Math.round(
+        dcp.DRAW * 100,
+      )}%/A${Math.round(dcp.AWAY * 100)}%（重み${Math.round(dcWeight * 100)}%で統合）`,
+    });
+  }
+  if (crowd) {
+    reasons.push({
+      label: "群衆の投票率",
+      impact: clamp(crowd.HOME - crowd.AWAY, -1, 1),
+      detail: `支持率 ホーム${Math.round(crowd.HOME * 100)}% / 引分${Math.round(
+        crowd.DRAW * 100,
+      )}% / アウェイ${Math.round(crowd.AWAY * 100)}%${
+        dataConfidence < 1 ? "（データ不足のため群衆を重視）" : ""
+      }`,
+    });
+  }
+  if (value && Math.abs(value.bestEdge) >= 0.08) {
+    reasons.push({
+      label: `妙味(value): ${value.bestOutcome === "HOME" ? home.shortName : value.bestOutcome === "AWAY" ? away.shortName : "引分"}`,
+      impact: clamp(
+        value.bestOutcome === "AWAY" ? -value.bestEdge : value.bestEdge,
+        -1,
+        1,
+      ),
+      detail: `モデルは群衆より${value.bestOutcome === "HOME" ? "ホーム" : value.bestOutcome === "AWAY" ? "アウェイ" : "引分"}を+${Math.round(
+        value.bestEdge * 100,
+      )}pt高く評価（過小評価＝狙い目）`,
+    });
+  }
+
   return {
     fixtureNo: fixture.no,
     homeTeamId: home.id,
     awayTeamId: away.id,
     probabilities,
+    modelProbabilities,
+    crowd,
+    dataConfidence,
+    value,
     pick,
     confidence,
     upset,

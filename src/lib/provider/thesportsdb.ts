@@ -104,10 +104,10 @@ async function fetchSeasonMatches(
 }
 
 /**
- * TheSportsDB から J1 のチーム特徴量を構築する。
- * @returns 確定結果から算出した Team[]（seed の表示情報にマージ済み）
+ * TheSportsDB から J1 の確定結果とチーム特徴量を取得する。
+ * @returns { matches: 確定試合(Dixon-Colesのフィット用), teams: 算出済みTeam[] }
  */
-export async function fetchJ1Ratings(): Promise<Team[]> {
+export async function fetchJ1Data(): Promise<{ matches: FinishedMatch[]; teams: Team[] }> {
   const nameIdx = buildNameIndex();
   const leagueId = await resolveLeagueId();
   if (!leagueId) throw new Error("リーグIDを解決できませんでした");
@@ -127,7 +127,12 @@ export async function fetchJ1Ratings(): Promise<Team[]> {
     name: t.name,
     shortName: t.shortName,
   }));
-  return buildTeamRatings(all, metas);
+  return { matches: all, teams: buildTeamRatings(all, metas) };
+}
+
+/** 後方互換: チーム特徴量のみ取得 */
+export async function fetchJ1Ratings(): Promise<Team[]> {
+  return (await fetchJ1Data()).teams;
 }
 
 /**

@@ -1,13 +1,14 @@
-// 定期実行: 実データ(J1の確定結果)からチームのレーティングを再構築し、
-// Turso の teams テーブルへ保存する。以降のリクエストはDBから読むため、
-// 外部APIへの依存をリクエスト経路から切り離せる。
+// 定期実行: 実データ(J1の確定結果)からチームのレーティングと
+// Dixon-Coles パラメータ(最尤推定)を再構築し、Turso へ保存する。
+// 以降のリクエストはDBから読むため、外部APIへの依存をリクエスト経路から切り離せる。
 //
 // DATA_SOURCE=thesportsdb のときのみ外部取得を行う（既定は取得せずseed維持）。
 
 import { NextResponse } from "next/server";
 import { authorizeCron } from "@/lib/cron";
-import { saveTeams } from "@/lib/db";
-import { fetchJ1Ratings, mergeRatings } from "@/lib/provider/thesportsdb";
+import { saveModelParams, saveTeams } from "@/lib/db";
+import { fetchJ1Data, mergeRatings } from "@/lib/provider/thesportsdb";
+import { fitDixonColes } from "@/lib/dixon-coles";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -26,22 +27,26 @@ export async function GET(request: Request) {
   }
 
   try {
-    const fetched = await fetchJ1Ratings();
-    const merged = mergeRatings(fetched);
+    const { matches, teams } = await fetchJ1Data();
+    const merged = mergeRatings(teams);
     await saveTeams(merged, "thesportsdb");
+
+    // Dixon-Coles を最尤推定してパラメータを保存
+    const dc = fitDixonColes(matches);
+    await saveModelParams("dixon-coles", dc);
+
     return NextResponse.json({
       ok: true,
       source,
       persisted: process.env.TURSO_DATABASE_URL ? true : false,
-      teamsFetched: fetched.length,
+      matchesUsed: matches.length,
       teamsSaved: merged.length,
-      sample: fetched.slice(0, 3).map((t) => ({
-        id: t.id,
-        elo: t.elo,
-        gf: Number(t.goalsForPerGame.toFixed(2)),
-        ga: Number(t.goalsAgainstPerGame.toFixed(2)),
-        form: t.recentForm.join(""),
-      })),
+      dixonColes: {
+        mu: Number(dc.mu.toFixed(3)),
+        home: Number(dc.home.toFixed(3)),
+        rho: dc.rho,
+        teams: Object.keys(dc.att).length,
+      },
     });
   } catch (err) {
     return NextResponse.json(

@@ -81,6 +81,11 @@ export async function ensureSchema(client: Client): Promise<void> {
         source TEXT NOT NULL,
         updated_at TEXT NOT NULL
       )`,
+      `CREATE TABLE IF NOT EXISTS model_params (
+        id TEXT PRIMARY KEY,
+        json TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      )`,
       `CREATE TABLE IF NOT EXISTS news_factors (
         id TEXT PRIMARY KEY,
         team_id TEXT NOT NULL,
@@ -256,6 +261,32 @@ export async function loadTeamsFromDb(): Promise<Team[] | null> {
     goalsAgainstPerGame: Number(r.ga_per_game),
     recentForm: JSON.parse(String(r.recent_form)),
   }));
+}
+
+/** モデルパラメータ(JSON)を保存（Dixon-Colesのフィット結果など） */
+export async function saveModelParams(id: string, params: unknown): Promise<void> {
+  const client = getClient();
+  if (!client) return;
+  await ensureSchema(client);
+  await client.execute({
+    sql: `INSERT INTO model_params (id, json, updated_at) VALUES (?,?,?)
+      ON CONFLICT(id) DO UPDATE SET json=excluded.json, updated_at=excluded.updated_at`,
+    args: [id, JSON.stringify(params), new Date().toISOString()],
+  });
+}
+
+/** モデルパラメータ(JSON)を読む。未設定/無ければ null。 */
+export async function loadModelParams<T>(id: string): Promise<T | null> {
+  const client = getClient();
+  if (!client) return null;
+  await ensureSchema(client);
+  const rs = await client.execute({ sql: "SELECT json FROM model_params WHERE id = ?", args: [id] });
+  if (rs.rows.length === 0) return null;
+  try {
+    return JSON.parse(String(rs.rows[0].json)) as T;
+  } catch {
+    return null;
+  }
 }
 
 /** ニュース特徴量を丸ごと差し替え（収集はスナップショットのため全消し→挿入） */

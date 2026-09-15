@@ -8,24 +8,43 @@ export default function About() {
       <h1>仕組み</h1>
       <p className="lead">「なぜその予想になったか」が見えることを重視しています。</p>
 
-      <h2>1. 予想エンジン</h2>
+      <h2>1. 予想エンジン（アンサンブル）</h2>
       <p className="small muted">
-        各試合の特徴量から期待得点（λ）を求め、Poisson / Dixon-Coles で 1X2 の確率を算出します。
+        複数の無料手法を統合し、期待得点（λ）から Poisson / Dixon-Coles で 1X2 の確率を算出します。
       </p>
       <ul className="small">
         <li>
-          <strong>Eloレーティング</strong> … チームの実力。ホームには +65 点相当のアドバンテージを加味。
+          <strong>Dixon-Coles（最尤推定）</strong> … 過去全結果からチームの攻撃力・守備力・
+          ホーム優位・低スコア補正(ρ)・得点水準を時間減衰つきで最尤推定。サッカー予測の最高峰手法。
+          実データ(TheSportsDB)取込時に有効化。
         </li>
         <li>
-          <strong>攻撃力・守備力</strong> … 平均得点/失点をリーグ平均で正規化。
+          <strong>Eloレーティング</strong> … チームの実力。ホームに +65 点相当を加味。
         </li>
         <li>
-          <strong>直近5試合のフォーム</strong> … 勝点から調子指数（-1〜+1）を作り微調整。
+          <strong>攻撃力・守備力・直近5試合のフォーム</strong> … 平均得失点と調子で微調整。
         </li>
         <li>
-          <strong>Dixon-Coles 補正</strong> … サッカー特有の低スコア・引き分けの多さを補正（ρ=-0.13）。
+          <strong>群衆の投票率（支持率）</strong> … toto公式の支持率をベイズ的な事前分布として統合。
+          データの無いJ2/J3対戦では群衆を重視し、実データのある対戦ではモデルを重視。
+        </li>
+        <li>
+          <strong>ニュース特徴量</strong> … 怪我・出停・監督交代・連戦を乗数化（下記2）。
         </li>
       </ul>
+
+      <h2>1b. 妙味(value)分析</h2>
+      <p className="small muted">
+        モデル確率と群衆の支持率の差（エッジ）を各試合に表示。モデルが群衆より高く見る結果は
+        「過小評価＝狙い目」。特に引き分けは群衆が軽視しがちで、統計モデルとの乖離が出やすい。
+      </p>
+
+      <h2>1c. 精密な評価（バックテスト）</h2>
+      <p className="small muted">
+        的中率だけでなく、確率予測の標準指標で精度を数値化: <strong>RPS</strong>（順序を考慮した
+        確率スコア）・<strong>Brier</strong>・<strong>対数損失</strong>・<strong>情報利得</strong>・
+        キャリブレーション。<a href="/betting">買い目</a>では的中数の分布（ポアソン二項分布の厳密計算）も表示。
+      </p>
 
       <h2>2. ニュースの使い方</h2>
       <p className="small muted">

@@ -51,6 +51,8 @@ export interface Fixture {
   result: Outcome | null;
   /** 確定スコア（任意） */
   score?: { home: number; away: number } | null;
+  /** 群衆の投票率（toto公式の支持率, 合計1）。妙味(value)分析と事前分布に使う。 */
+  support?: Record<Outcome, number> | null;
 }
 
 /** totoの1開催回 */
@@ -76,7 +78,20 @@ export interface MatchPrediction {
   fixtureNo: number;
   homeTeamId: string;
   awayTeamId: string;
+  /** 最終的な表示確率（モデル×群衆の統合後） */
   probabilities: Record<Outcome, number>;
+  /** モデル単独の確率（群衆統合前） */
+  modelProbabilities: Record<Outcome, number>;
+  /** 群衆の投票率（あれば） */
+  crowd?: Record<Outcome, number> | null;
+  /** データ信頼度(0〜1): 両チームに実データがあるほど高い */
+  dataConfidence: number;
+  /** 妙味(value)分析: モデルが群衆より高く見る度合い（正=買い時） */
+  value?: {
+    edge: Record<Outcome, number>;
+    bestOutcome: Outcome;
+    bestEdge: number;
+  } | null;
   /** 最有力の結果 */
   pick: Outcome;
   /** 自信度（0〜1）: 最有力の確率の高さ */

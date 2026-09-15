@@ -32,9 +32,11 @@ export default async function Results() {
           <tr>
             <th>モデル</th>
             <th className="num">試合的中率</th>
-            <th className="num">的中/試合</th>
+            <th className="num">RPS↓</th>
+            <th className="num">Brier↓</th>
+            <th className="num">対数損失↓</th>
+            <th className="num">情報利得↑</th>
             <th className="num">完全的中</th>
-            <th className="num">参考回収率</th>
           </tr>
         </thead>
         <tbody>
@@ -42,25 +44,27 @@ export default async function Results() {
             <tr key={meta.id}>
               <td>{meta.label}</td>
               <td className="num">{pct(summary.matchAccuracy, 1)}</td>
+              <td className="num">{summary.scores.rps.toFixed(3)}</td>
+              <td className="num">{summary.scores.brier.toFixed(3)}</td>
+              <td className="num">{summary.scores.logLoss.toFixed(3)}</td>
               <td className="num">
-                {summary.totalCorrect}/{summary.totalMatches}
+                <span className={summary.scores.skill >= 0 ? "hit" : "miss"}>
+                  {summary.scores.skill >= 0 ? "+" : ""}
+                  {pct(summary.scores.skill, 1)}
+                </span>
               </td>
               <td className="num">
                 {summary.perfectCount}/{summary.rounds.length}回
-              </td>
-              <td className="num">
-                <span className={summary.sampleRoi.roi >= 0 ? "hit" : "miss"}>
-                  {summary.sampleRoi.roi >= 0 ? "+" : ""}
-                  {pct(summary.sampleRoi.roi, 0)}
-                </span>
               </td>
             </tr>
           ))}
         </tbody>
       </table>
       <p className="small muted" style={{ marginTop: 8 }}>
-        参考回収率: 1回あたり予算{yen(summaries[0].summary.sampleRoi.budgetPerRound)}・想定1等
-        {yen(summaries[0].summary.sampleRoi.assumedJackpot)}での試算。
+        RPS（Ranked Probability Score）はサッカー1X2予測の標準指標で、順序性を考慮した確率の精度。
+        小さいほど良い。情報利得は「ホーム本命固定」基準に対する改善度（大きいほど良い）。
+        参考回収率（バランス買い目・想定1等{yen(summaries[0].summary.sampleRoi.assumedJackpot)}での試算）:{" "}
+        {summaries.map((s) => `${s.meta.label} ${s.summary.sampleRoi.roi >= 0 ? "+" : ""}${pct(s.summary.sampleRoi.roi, 0)}`).join(" / ")}
       </p>
 
       {summaries.map(({ meta, summary }) => (

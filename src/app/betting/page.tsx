@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { buildTicket } from "@/lib/betting";
 import { BET_MODES, MODELS, predictRound } from "@/lib/service";
+import { countDistribution } from "@/lib/simulate";
 import { getDeps } from "@/lib/teams";
 import type { BetMode, ModelId, Outcome } from "@/lib/types";
 import { OUTCOME_MARK, pct, yen } from "@/lib/format";
@@ -32,6 +33,11 @@ export default async function Betting({
   const preds = predictRound(round, model, deps);
   const ticket = buildTicket(preds, mode, budget);
   const predByNo = new Map(preds.map((p) => [p.fixtureNo, p]));
+
+  // 的中数の厳密分布（ポアソン二項分布）
+  const pickDist = countDistribution(preds.map((p) => p.probabilities[p.pick]));
+  const coverDist = countDistribution(ticket.selections.map((s) => s.coverage));
+  const n = preds.length;
 
   return (
     <>
@@ -109,6 +115,60 @@ export default async function Betting({
           <div className="tlabel">シングル/ダブル/トリプル</div>
         </div>
       </div>
+
+      <h2>精密シミュレーション（的中数の分布）</h2>
+      <p className="small muted">
+        各試合の的中確率が異なる独立試行の合計＝ポアソン二項分布を厳密計算しています（モンテカルロより正確）。
+      </p>
+      <div className="tiles">
+        <div className="tile">
+          <div className="tval">{pickDist.expected.toFixed(1)}<span style={{ fontSize: 14 }}>/{n}</span></div>
+          <div className="tlabel">本命の期待的中数</div>
+          <div className="tsub">最頻 {pickDist.mostLikely}試合的中</div>
+        </div>
+        <div className="tile">
+          <div className="tval">{pct(coverDist.atLeast[n] ?? 0, 2)}</div>
+          <div className="tlabel">買い目で全{n}試合的中</div>
+        </div>
+        <div className="tile">
+          <div className="tval">{pct(coverDist.atLeast[Math.max(0, n - 1)] ?? 0, 1)}</div>
+          <div className="tlabel">買い目で{n - 1}試合以上</div>
+        </div>
+        <div className="tile">
+          <div className="tval">{pct(coverDist.atLeast[Math.max(0, n - 2)] ?? 0, 1)}</div>
+          <div className="tlabel">買い目で{n - 2}試合以上</div>
+        </div>
+      </div>
+      <table style={{ marginTop: 8 }}>
+        <thead>
+          <tr>
+            <th>的中数</th>
+            {Array.from({ length: 5 }, (_, i) => n - 4 + i).map((k) => (
+              <th key={k} className="num">
+                {k}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>本命の的中確率</td>
+            {Array.from({ length: 5 }, (_, i) => n - 4 + i).map((k) => (
+              <td key={k} className="num">
+                {pct(pickDist.pmf[k] ?? 0, 1)}
+              </td>
+            ))}
+          </tr>
+          <tr>
+            <td>買い目の的中確率</td>
+            {Array.from({ length: 5 }, (_, i) => n - 4 + i).map((k) => (
+              <td key={k} className="num">
+                {pct(coverDist.pmf[k] ?? 0, 1)}
+              </td>
+            ))}
+          </tr>
+        </tbody>
+      </table>
 
       <h2>マークシート</h2>
       <div className="sel-grid">

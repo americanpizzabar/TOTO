@@ -42,6 +42,24 @@ export function MatchCard({
         <span>2 {away.shortName} {pct(p.probabilities.AWAY)}</span>
       </div>
 
+      {p.crowd && (
+        <div className="problabels" style={{ marginTop: 4 }}>
+          <span className="muted">
+            群衆 {pct(p.crowd.HOME)}/{pct(p.crowd.DRAW)}/{pct(p.crowd.AWAY)}
+          </span>
+          {p.value && Math.abs(p.value.bestEdge) >= 0.08 ? (
+            <span style={{ color: p.value.bestEdge > 0 ? "var(--home)" : "var(--text-dim)", fontWeight: 600 }}>
+              妙味: {OUTCOME_LABEL[p.value.bestOutcome]} {p.value.bestEdge > 0 ? "+" : ""}
+              {Math.round(p.value.bestEdge * 100)}pt
+            </span>
+          ) : p.dataConfidence < 1 ? (
+            <span className="muted">データ不足→群衆重視</span>
+          ) : (
+            <span className="muted">モデルと群衆はほぼ一致</span>
+          )}
+        </div>
+      )}
+
       <div className="meters">
         <div className="meter">
           <div className="meter-label">
